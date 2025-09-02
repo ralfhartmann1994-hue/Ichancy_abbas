@@ -201,15 +201,22 @@ def on_text(msg):
         return
 
     if state == S_TOPUP_METHOD:
-        if text == "سيريتيل كاش":
-            u["pending"] = {"method": "syriatel_cash", "amount": 0}
-            u["state"] = S_WAIT_AMOUNT
-            save_data()
-            bot.send_message(chat_id, "أدخل قيمة التعبئة (10000 حتى 1000000
-            وبمضاعفات 5000):", reply_markup=kb_back())
-        else:
-            bot.send_message(chat_id, "اختر 'سيريتيل كاش'.", reply_markup=kb_only_syriatel())
-        return
+    if text == "سيريتيل كاش":
+        u["pending"] = {"method": "syriatel_cash", "amount": 0}
+        u["state"] = S_WAIT_AMOUNT
+        save_data()
+        bot.send_message(
+            chat_id,
+            "أدخل قيمة التعبئة (10000 حتى 1000000 وبمضاعفات 5000):",
+            reply_markup=kb_back()
+        )
+    else:
+        bot.send_message(
+            chat_id,
+            "اختر 'سيريتيل كاش'.",
+            reply_markup=kb_only_syriatel()
+        )
+    return
 
     if state == S_WAIT_AMOUNT:
         if is_valid_amount(text):
