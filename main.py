@@ -242,43 +242,33 @@ def on_text(msg):
         return
 
 # ================= SMS Gateway =================
-def parse_amount(txt: str) -> int:
-    return int(re.sub(r"[^\d]", "", txt)) if txt else 0
-
-def extract_sms_info(body: str):
-    m = re.search(r"تم\s+استلام\s+([\d,\.]+).*رمز\s+([A-Za-z0-9]+)", body)
-    if m:
-        return parse_amount(m.group(1)), m.group(2)
-    return 0, None
-
-def match_sms_with(user_code: str, user_amount: int):
-    for it in list(incoming_sms)[::-1]:
-        sender = it.get("sender", "")
-        body = it.get("body", "")
-        if "syriatel" not in sender.lower():
-            continue
-        amt, code = extract_sms_info(body)
-        if code and code.upper() == user_code.upper() and amt == user_amount:
-            return True, it
-    return False, None
-
 @app.route("/sms", methods=["POST"])
 def sms_webhook():
-    if request.headers.get("X-Secret") != SMS_SHARED_SECRET:
-        abort(401)
-    data = request.get_json(force=True)
-    sender = data.get("sender") or data.get("from", "")
-    body = data.get("message") or data.get("body", "")
-    incoming_sms.append({"sender": sender, "body": body})
-    return {"ok": True}
+    data = request.get_json()
+    message = data.get("message", "")
+    sender = data.get("sender", "")
 
-@app.route("/", methods=["GET", "POST"])
-def index():
-    if request.method == "POST":
-        update = request.stream.read().decode("utf-8")
-        bot.process_new_updates([telebot.types.Update.de_json(update)])
-        return "!", 200
-    return "OK", 200
+    import re
+    pattern = r"تم استلام مبلغ\s+(\d+)\s*ل\.س.*?رقم العملية هو\s+(\d+)"
+    match = re.search(pattern, message)
+
+    if match:
+        amount = match.group(1)
+        operation_id = match.group(2)
+        # إرسال إشعار للأدمن
+        bot.send_message(
+            ADMIN_CHAT_ID,
+            f"📩 دفع جديد من {sender}\n"
+            f"💰 المبلغ: {amount} ل.س\n"
+            f"🔢 رقم العملية: {operation_id}"
+        )
+        return jsonify({"status": "processed"}), 200
+    else:
+        bot.send_message(
+            ADMIN_CHAT_ID,
+            f"📩 رسالة غير مطابقة: {message}"
+        )
+        return jsonify({"status": "ignored"}), 200
 
 # ================= إرسال إشعار للأدمن =================
 def send_admin_notification(user_id, username, u, amount):
