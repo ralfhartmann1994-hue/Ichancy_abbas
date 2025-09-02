@@ -1,7 +1,6 @@
-import os, time, json, threading, re
+import os, time, json, re
 from collections import deque
-from flask import Flask, request, abort
-from flask import request, jsonify
+from flask import Flask, request, jsonify
 import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 
@@ -10,13 +9,12 @@ TOKEN = os.environ.get("TELEGRAM_TOKEN")
 if not TOKEN:
     raise RuntimeError("ضع TELEGRAM_TOKEN في Render")
 
-ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")  # رقم ID حساب الأدمن
+ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 PAYMENT_NUMBER = os.environ.get("PAYMENT_NUMBER", "0933000000")
 PAYMENT_CODE = os.environ.get("PAYMENT_CODE", "7788297")
 SMS_SHARED_SECRET = os.environ.get("SMS_SHARED_SECRET", "changeme")
-
-APP_URL = os.environ.get("APP_URL")  # رابط Render مع https
-PORT = int(os.environ.get("PORT", "10000"))
+APP_URL = os.environ.get("APP_URL")
+PORT = int(os.environ.get("PORT", 10000))
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
 app = Flask(__name__)
@@ -28,7 +26,7 @@ incoming_sms = deque(maxlen=200)
 # ================= حالات المستخدم =================
 S_IDLE, S_WAIT_NAME, S_WAIT_AGE, S_MAIN_MENU, S_TOPUP_METHOD, S_WAIT_AMOUNT, S_WAIT_CONFIRM_SENT, S_WAIT_TRANSFER_CODE = range(8)
 
-# ================= تحميل/حفظ =================
+# ================= تحميل/حفظ البيانات =================
 def load_data():
     global users
     if os.path.exists(DATA_FILE):
@@ -87,16 +85,37 @@ def is_valid_full_name(name: str) -> bool:
     return len(parts) >= 3
 
 def is_valid_age(text: str) -> bool:
-    if not text.isdigit():
-        return False
-    age = int(text)
-    return 10 <= age <= 100
+    return text.isdigit() and 10 <= int(text) <= 100
 
 def is_valid_amount(text: str) -> bool:
-    if not text.isdigit():
-        return False
-    amount = int(text)
-    return 10000 <= amount <= 1000000 and amount % 5000 == 0
+    return text.isdigit() and 10000 <= int(text) <= 1000000 and int(text) % 5000 == 0
+
+# ================= معالجة SMS =================
+def match_sms_with(code, amount):
+    # تحقق مؤقت، يمكن تعديله حسب قاعدة البيانات
+    for sms in incoming_sms:
+        pattern = r"تم استلام مبلغ\s+(\d+)\s*ل\.س.*?رقم العملية هو\s+(\d+)"
+        m = re.search(pattern, sms.get("message", ""))
+        if m and m.group(1) == str(amount) and m.group(2) == str(code):
+            return True, sms
+    return False, None
+
+def send_admin_notification(user_id, username, u, amount):
+    if not ADMIN_CHAT_ID:
+        return
+    text = (
+        "📥 <b>طلب تعبئة جديد</b>\n\n"
+        f"👤 الاسم: {u['full_name']}\n"
+        f"🎂 العمر: {u['age']}\n"
+        f"✅ مرات التعبئة: {u['successful_topups']}\n"
+        f"💳 المبلغ: {amount:,} ل.س\n"
+        f"UserID: {user_id}\n"
+        f"Username: @{username or '—'}"
+    )
+    try:
+        bot.send_message(int(ADMIN_CHAT_ID), text)
+    except:
+        pass
 
 # ================= أوامر البوت =================
 @bot.message_handler(commands=["start"])
@@ -105,24 +124,13 @@ def on_start(msg):
     chat_id = msg.chat.id
     ensure_user(uid)
     u = users[str(uid)]
-
-    # إذا عنده بيانات → مباشرة القائمة الرئيسية
     if u["full_name"] and u["age"]:
-        bot.send_message(
-            chat_id,
-            "اهلا بكم في بوت abbas كاشيرا 😎\nلسنا الوحيدين لكننا الأفضل 😎❤️",
-            reply_markup=kb_main()
-        )
+        bot.send_message(chat_id, "اهلا بكم في بوت abbas كاشيرا 😎\nلسنا الوحيدين لكننا الأفضل 😎❤️", reply_markup=kb_main())
         u["state"] = S_MAIN_MENU
         save_data()
     else:
-        # تسجيل جديد
-        bot.send_message(
-            chat_id,
-            "اهلا بكم في بوت abbas كاشيرا 😎\nلسنا الوحيدين لكننا الأفضل 😎❤️",
-            reply_markup=ReplyKeyboardRemove()
-        )
-        time.sleep(1.5)
+        bot.send_message(chat_id, "اهلا بكم في بوت abbas كاشيرا 😎\nلسنا الوحيدين لكننا الأفضل 😎❤️", reply_markup=ReplyKeyboardRemove())
+        time.sleep(1)
         bot.send_message(chat_id, "ادخل معلومات حسابك\nالاسم الثلاثي:", reply_markup=kb_back())
         u["state"] = S_WAIT_NAME
         save_data()
@@ -133,15 +141,10 @@ def profile_info(msg):
     ensure_user(uid)
     u = users[str(uid)]
     if u["full_name"] and u["age"]:
-        bot.send_message(
-            msg.chat.id,
-            f"👤 الاسم: {u['full_name']}\n🎂 العمر: {u['age']}\n✅ مرات التعبئة: {u['successful_topups']}",
-            reply_markup=kb_main()
-        )
+        bot.send_message(msg.chat.id, f"👤 الاسم: {u['full_name']}\n🎂 العمر: {u['age']}\n✅ مرات التعبئة: {u['successful_topups']}", reply_markup=kb_main())
     else:
         bot.send_message(msg.chat.id, "لم تسجل بياناتك بعد.", reply_markup=kb_back())
 
-# ================= معالجة النصوص =================
 @bot.message_handler(func=lambda m: True, content_types=["text"])
 def on_text(msg):
     uid = msg.from_user.id
@@ -207,13 +210,7 @@ def on_text(msg):
             u["pending"]["amount"] = amount
             u["state"] = S_WAIT_CONFIRM_SENT
             save_data()
-            bot.send_message(
-                chat_id,
-                f"حوّل المبلغ إلى الرقم: {PAYMENT_NUMBER}\n"
-                f"استخدم الكود: {PAYMENT_CODE}\n\n"
-                "بعد التحويل اضغط ✅ تم",
-                reply_markup=kb_done_back()
-            )
+            bot.send_message(chat_id, f"حوّل المبلغ إلى الرقم: {PAYMENT_NUMBER}\nاستخدم الكود: {PAYMENT_CODE}\nبعد التحويل اضغط ✅ تم", reply_markup=kb_done_back())
         else:
             bot.send_message(chat_id, "❌ المبلغ غير صحيح.", reply_markup=kb_back())
         return
@@ -242,11 +239,10 @@ def on_text(msg):
             bot.send_message(chat_id, "❌ الرمز غير صحيح أو لا يوجد SMS مطابق.", reply_markup=kb_back())
         return
 
-# ================= SMS Gateway =================
+# ================= Webhook SMS =================
 @app.route("/sms", methods=["POST"])
 def sms_webhook():
     try:
-        # استلام البيانات بصيغة JSON
         data = request.get_json()
         if not data:
             return jsonify({"error": "No JSON received"}), 400
@@ -254,55 +250,32 @@ def sms_webhook():
         message = data.get("message", "")
         sender = data.get("sender", "")
 
-        # Regex للتحقق من صيغة الرسالة كما في كودك الأصلي
+        # إضافة الرسالة لقائمة sms الواردة
+        incoming_sms.append({"message": message, "sender": sender})
+
+        # Regex للتحقق من صيغة الرسالة
         pattern = r"تم استلام مبلغ\s+(\d+)\s*ل\.س.*?رقم العملية هو\s+(\d+)"
         match = re.search(pattern, message)
-
         if match:
             amount = match.group(1)
             operation_id = match.group(2)
-            # إرسال إشعار للأدمن
-            bot.send_message(
-                ADMIN_CHAT_ID,
-                f"📩 دفع جديد من {sender}\n"
-                f"💰 المبلغ: {amount} ل.س\n"
-                f"🔢 رقم العملية: {operation_id}"
-            )
+            bot.send_message(ADMIN_CHAT_ID, f"📩 دفع جديد من {sender}\n💰 المبلغ: {amount} ل.س\n🔢 رقم العملية: {operation_id}")
             return jsonify({"status": "processed"}), 200
         else:
-            # إرسال رسالة للأدمن عن الرسائل غير المطابقة
-            bot.send_message(
-                ADMIN_CHAT_ID,
-                f"📩 رسالة غير مطابقة: {message}"
-            )
+            bot.send_message(ADMIN_CHAT_ID, f"📩 رسالة غير مطابقة: {message}")
             return jsonify({"status": "ignored"}), 200
-
     except Exception as e:
-        # أي خطأ نطبعه في لوج Render ونرد على httpSMS
         print("Error in sms_webhook:", e)
         return jsonify({"error": str(e)}), 500
-# ================= إرسال إشعار للأدمن =================
-def send_admin_notification(user_id, username, u, amount):
-    if not ADMIN_CHAT_ID:
-        return
-    text = (
-        "📥 <b>طلب تعبئة جديد</b>\n\n"
-        f"👤 الاسم: {u['full_name']}\n"
-        f"🎂 العمر: {u['age']}\n"
-        f"✅ مرات التعبئة: {u['successful_topups']}\n"
-        f"💳 المبلغ: {amount:,} ل.س\n"
-        f"UserID: {user_id}\n"
-        f"Username: @{username or '—'}"
-    )
-    try:
-        bot.send_message(int(ADMIN_CHAT_ID), text)
-    except:
-        bot.send_message(ADMIN_CHAT_ID, text)
+
+# ================= صفحة التحقق من السيرفر =================
+@app.route("/", methods=["GET"])
+def home():
+    return "Server is running ✅", 200
 
 # ================= تشغيل =================
 if __name__ == "__main__":
     load_data()
-    # تعيين Webhook
     bot.remove_webhook()
     bot.set_webhook(url=f"{APP_URL}/")
-    app.run(host="0.0.0.0", port=PORT)
+    app.run(host="0.0.0.0", port=PORT) 
