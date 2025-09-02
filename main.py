@@ -1,6 +1,7 @@
 import os, time, json, threading, re
 from collections import deque
 from flask import Flask, request, abort
+from flask import request, jsonify
 import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 
@@ -242,10 +243,6 @@ def on_text(msg):
         return
 
 # ================= SMS Gateway =================
-@app.route("/sms", methods=["POST"])
-from flask import request, jsonify
-import re
-
 @app.route("/sms", methods=["POST"])
 def sms_webhook():
     try:
