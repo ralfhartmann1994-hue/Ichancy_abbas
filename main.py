@@ -243,33 +243,47 @@ def on_text(msg):
 
 # ================= SMS Gateway =================
 @app.route("/sms", methods=["POST"])
+from flask import request, jsonify
+import re
+
+@app.route("/sms", methods=["POST"])
 def sms_webhook():
-    data = request.get_json()
-    message = data.get("message", "")
-    sender = data.get("sender", "")
+    try:
+        # استلام البيانات بصيغة JSON
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No JSON received"}), 400
 
-    import re
-    pattern = r"تم استلام مبلغ\s+(\d+)\s*ل\.س.*?رقم العملية هو\s+(\d+)"
-    match = re.search(pattern, message)
+        message = data.get("message", "")
+        sender = data.get("sender", "")
 
-    if match:
-        amount = match.group(1)
-        operation_id = match.group(2)
-        # إرسال إشعار للأدمن
-        bot.send_message(
-            ADMIN_CHAT_ID,
-            f"📩 دفع جديد من {sender}\n"
-            f"💰 المبلغ: {amount} ل.س\n"
-            f"🔢 رقم العملية: {operation_id}"
-        )
-        return jsonify({"status": "processed"}), 200
-    else:
-        bot.send_message(
-            ADMIN_CHAT_ID,
-            f"📩 رسالة غير مطابقة: {message}"
-        )
-        return jsonify({"status": "ignored"}), 200
+        # Regex للتحقق من صيغة الرسالة كما في كودك الأصلي
+        pattern = r"تم استلام مبلغ\s+(\d+)\s*ل\.س.*?رقم العملية هو\s+(\d+)"
+        match = re.search(pattern, message)
 
+        if match:
+            amount = match.group(1)
+            operation_id = match.group(2)
+            # إرسال إشعار للأدمن
+            bot.send_message(
+                ADMIN_CHAT_ID,
+                f"📩 دفع جديد من {sender}\n"
+                f"💰 المبلغ: {amount} ل.س\n"
+                f"🔢 رقم العملية: {operation_id}"
+            )
+            return jsonify({"status": "processed"}), 200
+        else:
+            # إرسال رسالة للأدمن عن الرسائل غير المطابقة
+            bot.send_message(
+                ADMIN_CHAT_ID,
+                f"📩 رسالة غير مطابقة: {message}"
+            )
+            return jsonify({"status": "ignored"}), 200
+
+    except Exception as e:
+        # أي خطأ نطبعه في لوج Render ونرد على httpSMS
+        print("Error in sms_webhook:", e)
+        return jsonify({"error": str(e)}), 500
 # ================= إرسال إشعار للأدمن =================
 def send_admin_notification(user_id, username, u, amount):
     if not ADMIN_CHAT_ID:
