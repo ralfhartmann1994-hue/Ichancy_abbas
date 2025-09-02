@@ -1,4 +1,4 @@
-import os, time, json, re
+import os, time, json, re, threading
 from collections import deque
 from flask import Flask, request, jsonify
 import telebot
@@ -12,7 +12,6 @@ if not TOKEN:
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 PAYMENT_NUMBER = os.environ.get("PAYMENT_NUMBER", "0933000000")
 PAYMENT_CODE = os.environ.get("PAYMENT_CODE", "7788297")
-SMS_SHARED_SECRET = os.environ.get("SMS_SHARED_SECRET", "changeme")
 APP_URL = os.environ.get("APP_URL")
 PORT = int(os.environ.get("PORT", 10000))
 
@@ -21,12 +20,12 @@ app = Flask(__name__)
 
 DATA_FILE = "users_data.json"
 users = {}
-incoming_sms = deque(maxlen=200)
+incoming_sms = deque(maxlen=200)  # كل عنصر: {"message":..., "sender":..., "timestamp":...}
 
 # ================= حالات المستخدم =================
 S_IDLE, S_WAIT_NAME, S_WAIT_AGE, S_MAIN_MENU, S_TOPUP_METHOD, S_WAIT_AMOUNT, S_WAIT_CONFIRM_SENT, S_WAIT_TRANSFER_CODE = range(8)
 
-# ================= تحميل/حفظ البيانات =================
+# ================= تحميل/حفظ =================
 def load_data():
     global users
     if os.path.exists(DATA_FILE):
@@ -90,13 +89,20 @@ def is_valid_age(text: str) -> bool:
 def is_valid_amount(text: str) -> bool:
     return text.isdigit() and 10000 <= int(text) <= 1000000 and int(text) % 5000 == 0
 
-# ================= معالجة SMS =================
+# ================= تنظيف الرسائل القديمة =================
+def clean_old_sms():
+    now = time.time()
+    while incoming_sms and now - incoming_sms[0]["timestamp"] > 300:  # 5 دقائق
+        incoming_sms.popleft()
+
+# ================= معالجة الرسائل =================
 def match_sms_with(code, amount):
-    # تحقق مؤقت، يمكن تعديله حسب قاعدة البيانات
+    clean_old_sms()
     for sms in incoming_sms:
         pattern = r"تم استلام مبلغ\s+(\d+)\s*ل\.س.*?رقم العملية هو\s+(\d+)"
-        m = re.search(pattern, sms.get("message", ""))
+        m = re.search(pattern, sms["message"])
         if m and m.group(1) == str(amount) and m.group(2) == str(code):
+            incoming_sms.remove(sms)  # حذف الرسالة بعد المطابقة
             return True, sms
     return False, None
 
@@ -104,7 +110,7 @@ def send_admin_notification(user_id, username, u, amount):
     if not ADMIN_CHAT_ID:
         return
     text = (
-        "📥 <b>طلب تعبئة جديد</b>\n\n"
+        "📥 <b>تمت تعبئة الحساب بنجاح</b>\n\n"
         f"👤 الاسم: {u['full_name']}\n"
         f"🎂 العمر: {u['age']}\n"
         f"✅ مرات التعبئة: {u['successful_topups']}\n"
@@ -199,7 +205,8 @@ def on_text(msg):
             u["pending"] = {"method": "syriatel_cash", "amount": 0}
             u["state"] = S_WAIT_AMOUNT
             save_data()
-            bot.send_message(chat_id, "أدخل قيمة التعبئة (10000 حتى 1000000 وبمضاعفات 5000):", reply_markup=kb_back())
+            bot.send_message(chat_id, "أدخل قيمة التعبئة (10000 حتى 1000000
+            وبمضاعفات 5000):", reply_markup=kb_back())
         else:
             bot.send_message(chat_id, "اختر 'سيريتيل كاش'.", reply_markup=kb_only_syriatel())
         return
@@ -210,7 +217,13 @@ def on_text(msg):
             u["pending"]["amount"] = amount
             u["state"] = S_WAIT_CONFIRM_SENT
             save_data()
-            bot.send_message(chat_id, f"حوّل المبلغ إلى الرقم: {PAYMENT_NUMBER}\nاستخدم الكود: {PAYMENT_CODE}\nبعد التحويل اضغط ✅ تم", reply_markup=kb_done_back())
+            bot.send_message(
+                chat_id,
+                f"حوّل المبلغ إلى الرقم: {PAYMENT_NUMBER}\n"
+                f"استخدم الكود: {PAYMENT_CODE}\n\n"
+                "بعد التحويل اضغط ✅ تم",
+                reply_markup=kb_done_back()
+            )
         else:
             bot.send_message(chat_id, "❌ المبلغ غير صحيح.", reply_markup=kb_back())
         return
@@ -227,7 +240,7 @@ def on_text(msg):
     if state == S_WAIT_TRANSFER_CODE:
         code = text.strip()
         amount = u["pending"].get("amount", 0)
-        ok, _ = match_sms_with(code, amount)
+        ok, sms = match_sms_with(code, amount)
         if ok:
             u["successful_topups"] += 1
             u["state"] = S_MAIN_MENU
@@ -239,7 +252,7 @@ def on_text(msg):
             bot.send_message(chat_id, "❌ الرمز غير صحيح أو لا يوجد SMS مطابق.", reply_markup=kb_back())
         return
 
-# ================= Webhook SMS =================
+# ================= SMS Gateway =================
 @app.route("/sms", methods=["POST"])
 def sms_webhook():
     try:
@@ -250,25 +263,26 @@ def sms_webhook():
         message = data.get("message", "")
         sender = data.get("sender", "")
 
-        # إضافة الرسالة لقائمة sms الواردة
-        incoming_sms.append({"message": message, "sender": sender})
+        # إضافة الرسالة إلى cache مؤقتة
+        incoming_sms.append({"message": message, "sender": sender, "timestamp": time.time()})
+        return jsonify({"status": "received"}), 200
 
-        # Regex للتحقق من صيغة الرسالة
-        pattern = r"تم استلام مبلغ\s+(\d+)\s*ل\.س.*?رقم العملية هو\s+(\d+)"
-        match = re.search(pattern, message)
-        if match:
-            amount = match.group(1)
-            operation_id = match.group(2)
-            bot.send_message(ADMIN_CHAT_ID, f"📩 دفع جديد من {sender}\n💰 المبلغ: {amount} ل.س\n🔢 رقم العملية: {operation_id}")
-            return jsonify({"status": "processed"}), 200
-        else:
-            bot.send_message(ADMIN_CHAT_ID, f"📩 رسالة غير مطابقة: {message}")
-            return jsonify({"status": "ignored"}), 200
     except Exception as e:
         print("Error in sms_webhook:", e)
         return jsonify({"error": str(e)}), 500
 
-# ================= صفحة التحقق من السيرفر =================
+# ================= Telegram Webhook =================
+@app.route("/webhook", methods=["POST"])
+def telegram_webhook():
+    try:
+        update = telebot.types.Update.de_json(request.get_data().decode("utf-8"))
+        bot.process_new_updates([update])
+        return "OK", 200
+    except Exception as e:
+        print("Error in telegram_webhook:", e)
+        return "Error", 500
+
+# ================= الصفحة الرئيسية =================
 @app.route("/", methods=["GET"])
 def home():
     return "Server is running ✅", 200
@@ -276,6 +290,8 @@ def home():
 # ================= تشغيل =================
 if __name__ == "__main__":
     load_data()
+    # إعداد Webhook للبوت
     bot.remove_webhook()
-    bot.set_webhook(url=f"{APP_URL}/")
-    app.run(host="0.0.0.0", port=PORT) 
+    bot.set_webhook(url=f"{APP_URL}/webhook")
+    # تشغيل Flask
+    app.run(host="0.0.0.0", port=PORT)
