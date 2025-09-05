@@ -315,27 +315,30 @@ def on_text(msg):
 # ================= SMS Gateway =================
 @app.route("/sms", methods=["POST"])
 def sms_webhook():
+    """
+    يستقبل JSON من Automate على:
+    https://<service>.onrender.com/sms
+    أمثلة JSON المتوقعة:
+    {
+        "sender": "Syriatel",
+        "message": "تم استلام مبلغ 45000 ل.س بنجاح. رقم العملية هو 123456"
+    }
+    """
     try:
         data = request.get_json(silent=True) or {}
         message = data.get("message", "")
         sender = data.get("sender", "")
+
+        # ======= هنا التعديل =======
+        print(f"[SMS Received] Sender: {sender}, Message: {message}")
+        # ===========================
+
         add_incoming_sms(message, sender)
         return jsonify({"status": "received"}), 200
     except Exception as e:
         print("Error in /sms:", e)
         return jsonify({"error": str(e)}), 500
-
-@app.route("/webhook", methods=["POST"])
-def telegram_webhook():
-    try:
-        raw = request.get_data().decode("utf-8")
-        update = telebot.types.Update.de_json(raw)
-        bot.process_new_updates([update])
-        return "OK", 200
-    except Exception as e:
-        print("Error in /webhook:", e)
-        return "Error", 500
-
+        
 @app.route("/", methods=["GET"])
 def home():
     return "Server is running ✅", 200
