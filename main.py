@@ -129,7 +129,7 @@ def match_sms_with(code: str, amount: int):
     clean_old_sms()
     pattern = r"تم\s+استلام\s+مبلغ\s+(\d+)\s*ل\.س.*?رقم\s+العملية\s+هو\s+(\d+)"
     for sms in list(incoming_sms):
-        m = re.search(pattern, sms["message"])
+        m = re.search(pattern, sms["message"], re.IGNORECASE)
         if not m:
             continue
         amount_str, op_code = m.group(1), m.group(2)
@@ -338,7 +338,18 @@ def sms_webhook():
     except Exception as e:
         print("Error in /sms:", e)
         return jsonify({"error": str(e)}), 500
-        
+
+# ================= Telegram Webhook Endpoint =================
+@app.route("/webhook", methods=["POST"])
+def telegram_webhook():
+    try:
+        update = request.get_json(force=True)
+        bot.process_new_updates([telebot.types.Update.de_json(update)])
+        return jsonify({"status": "ok"}), 200
+    except Exception as e:
+        print("Error in /webhook:", e)
+        return jsonify({"error": str(e)}), 500
+
 @app.route("/", methods=["GET"])
 def home():
     return "Server is running ✅", 200
