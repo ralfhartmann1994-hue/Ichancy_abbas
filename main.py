@@ -7,15 +7,15 @@ from flask import Flask, request, jsonify
 import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 
-# ================= Ø¥Ø¹Ø¯Ø§Ø¯Ø§Øª Ø§Ù„Ø¨ÙŠØ¦Ø© =================
+# ================= إعدادات البيئة =================
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
 if not TOKEN:
-    raise RuntimeError("Ø¶Ø¹ TELEGRAM_TOKEN ÙÙŠ Render")
+    raise RuntimeError("ضع TELEGRAM_TOKEN في Render")
 
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 PAYMENT_NUMBER = os.environ.get("PAYMENT_NUMBER", "0933000000")
 PAYMENT_CODE = os.environ.get("PAYMENT_CODE", "7788297")
-APP_URL = os.environ.get("APP_URL")  # Ù…Ø«Ø§Ù„: https://ichancy-abbas.onrender.com
+APP_URL = os.environ.get("APP_URL")  # مثال: https://ichancy-abbas.onrender.com
 PORT = int(os.environ.get("PORT", 10000))
 
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
@@ -37,6 +37,7 @@ SMS_CACHE_SECONDS = 5 * 60
     S_WAIT_TRANSFER_CODE,
 ) = range(8)
 
+# ================= تحميل/حفظ =================
 def load_data():
     global users
     if os.path.exists(DATA_FILE):
@@ -66,35 +67,37 @@ def ensure_user(uid):
             "pending": {},
         }
 
+# ================= لوحات المفاتيح =================
 def kb_main():
     kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(KeyboardButton("ðŸ’° ØªØ¹Ø¨Ø¦Ø© Ø§Ù„Ø­Ø³Ø§Ø¨"))
-    kb.add(KeyboardButton("ðŸ“„ Ù…Ù„ÙÙŠ Ø§Ù„Ø´Ø®ØµÙŠ"))
-    kb.add(KeyboardButton("ðŸ†˜ Ù…Ø³Ø§Ø¹Ø¯Ø©"))
+    kb.add(KeyboardButton("💰 تعبئة الحساب"))
+    kb.add(KeyboardButton("📄 ملفي الشخصي"))
+    kb.add(KeyboardButton("🆘 مساعدة"))
     return kb
 
 def kb_yes_no():
     kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(KeyboardButton("Ù†Ø¹Ù…"), KeyboardButton("Ù„Ø§"))
+    kb.add(KeyboardButton("نعم"), KeyboardButton("لا"))
     return kb
 
 def kb_back():
     kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(KeyboardButton("â¬…ï¸ Ø±Ø¬ÙˆØ¹"))
+    kb.add(KeyboardButton("⬅️ رجوع"))
     return kb
 
 def kb_done_back():
     kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(KeyboardButton("âœ… ØªÙ…"))
-    kb.add(KeyboardButton("â¬…ï¸ Ø±Ø¬ÙˆØ¹"))
+    kb.add(KeyboardButton("✅ تم"))
+    kb.add(KeyboardButton("⬅️ رجوع"))
     return kb
 
 def kb_only_syriatel():
     kb = ReplyKeyboardMarkup(resize_keyboard=True)
-    kb.add(KeyboardButton("Ø³ÙŠØ±ÙŠØªÙŠÙ„ ÙƒØ§Ø´"))
-    kb.add(KeyboardButton("â¬…ï¸ Ø±Ø¬ÙˆØ¹"))
+    kb.add(KeyboardButton("سيريتيل كاش"))
+    kb.add(KeyboardButton("⬅️ رجوع"))
     return kb
 
+# ================= تحقق المدخلات =================
 def is_valid_full_name(name: str) -> bool:
     parts = [p for p in re.split(r"\s+", name.strip()) if p]
     return len(parts) >= 3
@@ -105,6 +108,7 @@ def is_valid_age(text: str) -> bool:
 def is_valid_amount(text: str) -> bool:
     return text.isdigit() and 10000 <= int(text) <= 1000000 and int(text) % 5000 == 0
 
+# ================= أدوات SMS Cache =================
 def clean_old_sms():
     now = time.time()
     while incoming_sms and (now - incoming_sms[0]["timestamp"] > SMS_CACHE_SECONDS):
@@ -116,16 +120,13 @@ def add_incoming_sms(message: str, sender: str):
 
 def match_sms_with(code: str, amount: int):
     clean_old_sms()
-    pattern = r"ØªÙ…\s+Ø§Ø³ØªÙ„Ø§Ù…\s+Ù…Ø¨Ù„Øº\s+(\d+)\s*Ù„\.Ø³.*?Ø±Ù‚Ù…\s+Ø§Ù„Ø¹Ù…Ù„ÙŠØ©\s+Ù‡Ùˆ\s+(\d+)"
+    pattern = r"تم\s+استلام\s+مبلغ\s+(\d+)\s*ل\.س.*?رقم\s+العملية\s+هو\s+(\d+)"
     for sms in list(incoming_sms):
         m = re.search(pattern, sms["message"], re.IGNORECASE)
         if not m:
             continue
         amount_str, op_code = m.group(1), m.group(2)
-        amount_str = re.sub(r"[^\d]", "", amount_str)
-        code_clean = re.sub(r"[^\d]", "", code)
-        op_code_clean = re.sub(r"[^\d]", "", op_code)
-        if amount_str == str(amount) and op_code_clean == code_clean:
+        if amount_str == str(amount) and op_code == str(code):
             try:
                 incoming_sms.remove(sms)
             except ValueError:
@@ -137,13 +138,13 @@ def send_admin_notification(user_id, username, u, amount):
     if not ADMIN_CHAT_ID:
         return
     text = (
-        "ðŸ“¥ <b>ØªÙ…Øª ØªØ¹Ø¨Ø¦Ø© Ø§Ù„Ø­Ø³Ø§Ø¨ Ø¨Ù†Ø¬Ø§Ø­</b>\n\n"
-        f"ðŸ‘¤ Ø§Ù„Ø§Ø³Ù…: {u.get('full_name')}\n"
-        f"ðŸŽ‚ Ø§Ù„Ø¹Ù…Ø±: {u.get('age')}\n"
-        f"âœ… Ù…Ø±Ø§Øª Ø§Ù„ØªØ¹Ø¨Ø¦Ø©: {u.get('successful_topups')}\n"
-        f"ðŸ’³ Ø§Ù„Ù…Ø¨Ù„Øº: {amount:,} Ù„.Ø³\n"
+        "📥 <b>تمت تعبئة الحساب بنجاح</b>\n\n"
+        f"👤 الاسم: {u.get('full_name')}\n"
+        f"🎂 العمر: {u.get('age')}\n"
+        f"✅ مرات التعبئة: {u.get('successful_topups')}\n"
+        f"💳 المبلغ: {amount:,} ل.س\n"
         f"UserID: {user_id}\n"
-        f"Username: @{username or 'â€”'}"
+        f"Username: @{username or '—'}"
     )
     try:
         chat_id = int(ADMIN_CHAT_ID)
@@ -154,19 +155,20 @@ def send_admin_notification(user_id, username, u, amount):
     except Exception:
         pass
 
+# ================= أوامر البوت =================
 @bot.message_handler(commands=["start"])
 def on_start(msg):
     uid = msg.from_user.id
     chat_id = msg.chat.id
     ensure_user(uid)
     u = users[str(uid)]
-
+    
     if u.get("full_name") and u.get("age"):
         u["state"] = S_MAIN_MENU
         save_data()
-        bot.send_message(chat_id, "Ù…Ø±Ø­Ø¨Ø§ Ù…Ø¬Ø¯Ø¯Ù‹Ø§!", reply_markup=kb_main())
+        bot.send_message(chat_id, "مرحبا مجددًا!", reply_markup=kb_main())
     else:
-        bot.send_message(chat_id, "Ù‡Ù„ Ø£Ù†Øª Ù…Ø³Ø¬Ù„ Ø­Ø³Ø§Ø¨ Ù„Ø¯ÙŠÙ†Ø§ ÙÙŠ Ø§Ù„ÙƒØ§Ø´ÙŠØ±Ø§ØŸ", reply_markup=kb_yes_no())
+        bot.send_message(chat_id, "هل أنت مسجل حساب لدينا في الكاشيرا؟", reply_markup=kb_yes_no())
         u["state"] = S_IDLE
         save_data()
 
@@ -178,20 +180,23 @@ def on_text(msg):
     u = users[str(uid)]
     text = (msg.text or "").strip()
 
-    if text in ["â¬…ï¸ Ø±Ø¬ÙˆØ¹", "Ø±Ø¬ÙˆØ¹", "Ø¹ÙˆØ¯Ø©"] and u.get("state") in [S_WAIT_NAME, S_WAIT_AGE]:
-        bot.send_message(chat_id, "Ù„Ø§ ÙŠÙ…ÙƒÙ†Ùƒ Ø§Ù„Ø±Ø¬ÙˆØ¹ Ø§Ù„Ø¢Ù†. Ø£ÙƒÙ…ÙÙ„ Ø¨ÙŠØ§Ù†Ø§ØªÙƒ Ø£ÙˆÙ„Ø§Ù‹.")
+    # منع الرجوع قبل تعبئة البيانات
+    if text in ["⬅️ رجوع", "رجوع", "عودة"] and u.get("state") in [S_WAIT_NAME, S_WAIT_AGE]:
+        bot.send_message(chat_id, "لا يمكنك الرجوع الآن. أكمِل بياناتك أولاً.")
         return
 
-    if text in ["â¬…ï¸ Ø±Ø¬ÙˆØ¹", "Ø±Ø¬ÙˆØ¹", "Ø¹ÙˆØ¯Ø©"]:
+    # زر الرجوع في باقي الحالات
+    if text in ["⬅️ رجوع", "رجوع", "عودة"]:
         u["state"] = S_MAIN_MENU
         u["pending"] = {}
         save_data()
-        bot.send_message(chat_id, "ØªÙ… Ø§Ù„Ø±Ø¬ÙˆØ¹ Ù„Ù„Ù‚Ø§Ø¦Ù…Ø© Ø§Ù„Ø±Ø¦ÙŠØ³ÙŠØ©.", reply_markup=kb_main())
+        bot.send_message(chat_id, "تم الرجوع للقائمة الرئيسية.", reply_markup=kb_main())
         return
 
-    if text in ["Ù†Ø¹Ù…", "Ù„Ø§"] and u.get("state") == S_IDLE:
-        if text == "Ù„Ø§":
-            bot.send_message(chat_id, "Ø§Ù„Ø±Ø¬Ø§Ø¡ Ø§Ù„ØªÙˆØ§ØµÙ„ Ù…Ø¹ Ø§Ù„Ø¯Ø¹Ù… Ù„Ø¥Ù†Ø´Ø§Ø¡ Ø­Ø³Ø§Ø¨ Ù„Ùƒ:\n@MAA2857", reply_markup=ReplyKeyboardRemove())
+    # سؤال نعم/لا عند البداية
+    if text in ["نعم", "لا"] and u.get("state") == S_IDLE:
+        if text == "لا":
+            bot.send_message(chat_id, "الرجاء التواصل مع الدعم لإنشاء حساب لك:\n@MAA2857", reply_markup=ReplyKeyboardRemove())
             u["state"] = S_IDLE
             save_data()
             return
@@ -199,79 +204,86 @@ def on_text(msg):
             if u.get("full_name") and u.get("age"):
                 u["state"] = S_MAIN_MENU
                 save_data()
-                bot.send_message(chat_id, "Ù…Ø±Ø­Ø¨Ø§ Ù…Ø¬Ø¯Ø¯Ù‹Ø§!", reply_markup=kb_main())
+                bot.send_message(chat_id, "مرحبا مجددًا!", reply_markup=kb_main())
                 return
             else:
                 u["state"] = S_WAIT_NAME
                 save_data()
-                bot.send_message(chat_id, "Ø§Ø¯Ø®Ù„ Ù…Ø¹Ù„ÙˆÙ…Ø§Øª Ø­Ø³Ø§Ø¨Ùƒ\nØ§Ù„Ø§Ø³Ù… Ø§Ù„Ø«Ù„Ø§Ø«ÙŠ:", reply_markup=ReplyKeyboardRemove())
+                bot.send_message(chat_id, "ادخل معلومات حسابك\nالاسم الثلاثي:", reply_markup=ReplyKeyboardRemove())
                 return
 
     state = u.get("state", S_IDLE)
 
+    # الاسم
     if state == S_WAIT_NAME:
         if is_valid_full_name(text):
             u["full_name"] = text
             u["state"] = S_WAIT_AGE
             save_data()
-            bot.send_message(chat_id, "Ø¬ÙŠØ¯ âœ…\nØ§Ù„Ø¢Ù† Ø£Ø¯Ø®Ù„ Ø§Ù„Ø¹Ù…Ø± (10-100):", reply_markup=kb_back())
+            bot.send_message(chat_id, "جيد ✅\nالآن أدخل العمر (10-100):", reply_markup=kb_back())
         else:
-            bot.send_message(chat_id, "âŒ Ø§Ù„Ø§Ø³Ù… ØºÙŠØ± ØµØ§Ù„Ø­. Ø£Ø¯Ø®Ù„ Ø§Ø³Ù… Ø«Ù„Ø§Ø«ÙŠ ØµØ­ÙŠØ­.", reply_markup=kb_back())
+            bot.send_message(chat_id, "❌ الاسم غير صالح. أدخل اسم ثلاثي صحيح.", reply_markup=kb_back())
         return
 
+    # العمر
     if state == S_WAIT_AGE:
         if is_valid_age(text):
             u["age"] = int(text)
             u["state"] = S_MAIN_MENU
             save_data()
-            bot.send_message(chat_id, "ØªÙ… Ø­ÙØ¸ Ø¨ÙŠØ§Ù†Ø§ØªÙƒ âœ…", reply_markup=kb_main())
+            bot.send_message(chat_id, "تم حفظ بياناتك ✅", reply_markup=kb_main())
         else:
-            bot.send_message(chat_id, "âŒ Ø§Ù„Ø¹Ù…Ø± ØºÙŠØ± ØµØ§Ù„Ø­. Ø£Ø¯Ø®Ù„ Ø±Ù‚Ù… Ø¨ÙŠÙ† 10 Ùˆ100.", reply_markup=kb_back())
+            bot.send_message(chat_id, "❌ العمر غير صالح. أدخل رقم بين 10 و100.", reply_markup=kb_back())
         return
 
+    # القائمة الرئيسية
     if state == S_MAIN_MENU:
-        if text == "ðŸ’° ØªØ¹Ø¨Ø¦Ø© Ø§Ù„Ø­Ø³Ø§Ø¨":
+        if text == "💰 تعبئة الحساب":
             u["state"] = S_TOPUP_METHOD
             save_data()
-            bot.send_message(chat_id, "Ø§Ø®ØªØ± Ø·Ø±ÙŠÙ‚Ø© Ø§Ù„ØªØ¹Ø¨Ø¦Ø©:", reply_markup=kb_only_syriatel())
-        elif text == "ðŸ“„ Ù…Ù„ÙÙŠ Ø§Ù„Ø´Ø®ØµÙŠ":
-            bot.send_message(chat_id, f"ðŸ‘¤ Ø§Ù„Ø§Ø³Ù…: {u['full_name']}\nðŸŽ‚ Ø§Ù„Ø¹Ù…Ø±: {u['age']}\nâœ… Ù…Ø±Ø§Øª Ø§Ù„ØªØ¹Ø¨Ø¦Ø©: {u['successful_topups']}", reply_markup=kb_main())
-        elif text == "ðŸ†˜ Ù…Ø³Ø§Ø¹Ø¯Ø©":
-            bot.send_message(chat_id, "ØªÙˆØ§ØµÙ„ Ù…Ø¹Ù†Ø§ Ø¥Ø°Ø§ ÙƒÙ†Øª ØªÙˆØ§Ø¬Ù‡ Ø£ÙŠ Ù…Ø´ÙƒÙ„Ø©:\n@MAA2857", reply_markup=kb_main())
+            bot.send_message(chat_id, "اختر طريقة التعبئة:", reply_markup=kb_only_syriatel())
+        elif text == "📄 ملفي الشخصي":
+            bot.send_message(chat_id, f"👤 الاسم: {u['full_name']}\n🎂 العمر: {u['age']}\n✅ مرات التعبئة: {u['successful_topups']}", reply_markup=kb_main())
+        elif text == "🆘 مساعدة":
+            bot.send_message(chat_id, "تواصل معنا إذا كنت تواجه أي مشكلة:\n@MAA2857", reply_markup=kb_main())
         else:
-            bot.send_message(chat_id, "Ø§Ø®ØªØ± Ù…Ù† Ø§Ù„Ø£Ø²Ø±Ø§Ø±:", reply_markup=kb_main())
+            bot.send_message(chat_id, "اختر من الأزرار:", reply_markup=kb_main())
         return
 
+    # اختيار طريقة التعبئة
     if state == S_TOPUP_METHOD:
-        if text == "Ø³ÙŠØ±ÙŠØªÙŠÙ„ ÙƒØ§Ø´":
+        if text == "سيريتيل كاش":
             u["pending"] = {"method": "syriatel_cash", "amount": 0}
             u["state"] = S_WAIT_AMOUNT
             save_data()
-            bot.send_message(chat_id, f"Ø£Ø¯Ø®Ù„ Ù‚ÙŠÙ…Ø© Ø§Ù„ØªØ¹Ø¨Ø¦Ø© (10000 Ø­ØªÙ‰ 1000000 ÙˆØ¨Ù…Ø¶Ø§Ø¹ÙØ§Øª 5000):", reply_markup=kb_back())
+            bot.send_message(chat_id, f"أدخل قيمة التعبئة (10000 حتى 1000000 وبمضاعفات 5000):", reply_markup=kb_back())
         else:
-            bot.send_message(chat_id, "Ø§Ø®ØªØ± 'Ø³ÙŠØ±ÙŠØªÙŠÙ„ ÙƒØ§Ø´'.", reply_markup=kb_only_syriatel())
+            bot.send_message(chat_id, "اختر 'سيريتيل كاش'.", reply_markup=kb_only_syriatel())
         return
 
+    # إدخال المبلغ
     if state == S_WAIT_AMOUNT:
         if is_valid_amount(text):
             amount = int(text)
             u["pending"]["amount"] = amount
             u["state"] = S_WAIT_CONFIRM_SENT
             save_data()
-            bot.send_message(chat_id, f"Ø­ÙˆÙ‘Ù„ Ø§Ù„Ù…Ø¨Ù„Øº Ø¥Ù„Ù‰ Ø§Ù„Ø±Ù‚Ù…: {PAYMENT_NUMBER}\nØ§Ø³ØªØ®Ø¯Ù… Ø§Ù„ÙƒÙˆØ¯: {PAYMENT_CODE}\nØ¨Ø¹Ø¯ Ø§Ù„ØªØ­ÙˆÙŠÙ„ Ø§Ø¶ØºØ· âœ… ØªÙ…", reply_markup=kb_done_back())
+            bot.send_message(chat_id, f"حوّل المبلغ إلى الرقم: {PAYMENT_NUMBER}\nاستخدم الكود: {PAYMENT_CODE}\nبعد التحويل اضغط ✅ تم", reply_markup=kb_done_back())
         else:
-            bot.send_message(chat_id, "âŒ Ø§Ù„Ù…Ø¨Ù„Øº ØºÙŠØ± ØµØ­ÙŠØ­.", reply_markup=kb_back())
+            bot.send_message(chat_id, "❌ المبلغ غير صحيح.", reply_markup=kb_back())
         return
 
+    # تأكيد الإرسال
     if state == S_WAIT_CONFIRM_SENT:
-        if text == "âœ… ØªÙ…":
+        if text == "✅ تم":
             u["state"] = S_WAIT_TRANSFER_CODE
             save_data()
-            bot.send_message(chat_id, "Ø£Ø¯Ø®Ù„ Ø±Ù…Ø² Ø¹Ù…Ù„ÙŠØ© Ø§Ù„ØªØ­ÙˆÙŠÙ„:", reply_markup=kb_back())
+            bot.send_message(chat_id, "أدخل رمز عملية التحويل:", reply_markup=kb_back())
         else:
-            bot.send_message(chat_id, "Ø§Ø¶ØºØ· âœ… ØªÙ… Ø¨Ø¹Ø¯ Ø§Ù„ØªØ­ÙˆÙŠÙ„.", reply_markup=kb_done_back())
+            bot.send_message(chat_id, "اضغط ✅ تم بعد التحويل.", reply_markup=kb_done_back())
         return
 
+    # إدخال رمز العملية + المطابقة
     if state == S_WAIT_TRANSFER_CODE:
         code = text.strip()
         try:
@@ -287,12 +299,13 @@ def on_text(msg):
             u["pending"] = {}
             save_data()
 
-            bot.send_message(chat_id, "âœ… ØªÙ…Øª Ø§Ù„Ø¹Ù…Ù„ÙŠØ© Ø¨Ù†Ø¬Ø§Ø­.\nØ³ÙŠØªÙ… ØªØ¹Ø¨Ø¦Ø© Ø­Ø³Ø§Ø¨Ùƒ Ø®Ù„Ø§Ù„ Ø±Ø¨Ø¹ Ø³Ø§Ø¹Ø©.", reply_markup=kb_main())
+            bot.send_message(chat_id, "✅ تمت العملية بنجاح.\nسيتم تعبئة حسابك خلال ربع ساعة.", reply_markup=kb_main())
             send_admin_notification(uid, msg.from_user.username, u, amount)
         else:
-            bot.send_message(chat_id, "âŒ Ø§Ù„Ø±Ù…Ø² ØºÙŠØ± ØµØ­ÙŠØ­ Ø£Ùˆ Ù„Ø§ ÙŠÙˆØ¬Ø¯ SMS Ù…Ø·Ø§Ø¨Ù‚ Ø®Ù„Ø§Ù„ Ø¢Ø®Ø± 5 Ø¯Ù‚Ø§Ø¦Ù‚.", reply_markup=kb_back())
+            bot.send_message(chat_id, "❌ الرمز غير صحيح أو لا يوجد SMS مطابق خلال آخر 5 دقائق.", reply_markup=kb_back())
         return
 
+# ================= SMS Gateway =================
 @app.route("/sms", methods=["POST"])
 def sms_webhook():
     try:
@@ -306,6 +319,7 @@ def sms_webhook():
         print("Error in /sms:", e)
         return jsonify({"error": str(e)}), 500
 
+# ================= Telegram Webhook Endpoint =================
 @app.route("/webhook", methods=["POST"])
 def telegram_webhook():
     try:
@@ -318,7 +332,7 @@ def telegram_webhook():
 
 @app.route("/", methods=["GET"])
 def home():
-    return "Server is running âœ…", 200
+    return "Server is running ✅", 200
 
 if __name__ == "__main__":
     load_data()
@@ -327,5 +341,5 @@ if __name__ == "__main__":
         if APP_URL:
             bot.set_webhook(url=f"{APP_URL}/webhook")
     except Exception as e:
-        print("ØªØ­Ø°ÙŠØ±: ÙØ´Ù„ Ø¥Ø¹Ø¯Ø§Ø¯ Webhook Ù„ØªÙŠÙ„ÙŠØ¬Ø±Ø§Ù…:", e)
+        print("تحذير: فشل إعداد Webhook لتيليجرام:", e)
     app.run(host="0.0.0.0", port=PORT)
