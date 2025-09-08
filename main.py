@@ -2,10 +2,15 @@ import os
 import time
 import json
 import re
+import logging
 from collections import deque
 from flask import Flask, request, jsonify
 import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+
+# ================= إعداد logging =================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # ================= إعدادات البيئة =================
 TOKEN = os.environ.get("TELEGRAM_TOKEN")
@@ -310,21 +315,21 @@ def on_text(msg):
 def sms_webhook():
     try:
         raw_data = request.data.decode("utf-8", errors="ignore")
-        print("📩 الرسالة الخام RAW JSON:", raw_data)
+        logger.info("📩 الرسالة الخام RAW JSON: %s", raw_data)
 
         data = request.get_json(silent=True) or {}
-        print("📩 الرسالة بعد التحويل JSON:", data)
+        logger.info("📩 الرسالة بعد التحويل JSON: %s", data)
 
         message = data.get("message", "")
         sender = data.get("sender", "")
-        print(f"📩 المستخلص -> المرسل: {sender}, النص: {message}")
+        logger.info("📩 المستخلص -> المرسل: %s, النص: %s", sender, message)
 
         # ✅ إضافة الرسالة للـ cache
         add_incoming_sms(message, sender)
 
         return jsonify({"status": "received"}), 200
     except Exception as e:
-        print("❌ خطأ في /sms:", e)
+        logger.error("❌ خطأ في /sms: %s", e)
         return jsonify({"error": str(e)}), 500
         
 # ================= Telegram Webhook Endpoint =================
@@ -335,7 +340,7 @@ def telegram_webhook():
         bot.process_new_updates([telebot.types.Update.de_json(update)])
         return jsonify({"status": "ok"}), 200
     except Exception as e:
-        print("Error in /webhook:", e)
+        logger.error("Error in /webhook: %s", e)
         return jsonify({"error": str(e)}), 500
 
 @app.route("/", methods=["GET"])
@@ -349,5 +354,5 @@ if __name__ == "__main__":
         if APP_URL:
             bot.set_webhook(url=f"{APP_URL}/webhook")
     except Exception as e:
-        print("تحذير: فشل إعداد Webhook لتيليجرام:", e)
+        logger.warning("تحذير: فشل إعداد Webhook لتيليجرام: %s", e)
     app.run(host="0.0.0.0", port=PORT)
