@@ -319,6 +319,9 @@ def sms_webhook():
         sender = data.get("sender", "")
         print(f"📩 المستخلص -> المرسل: {sender}, النص: {message}")
 
+        # ✅ إضافة الرسالة للـ cache
+        add_incoming_sms(message, sender)
+
         return jsonify({"status": "received"}), 200
     except Exception as e:
         print("❌ خطأ في /sms:", e)
