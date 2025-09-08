@@ -320,6 +320,7 @@ def on_text(msg):
         return
 
 # ================= SMS Gateway =================
+# ================= SMS Gateway معدلة =================
 @app.route("/sms", methods=["POST"])
 def sms_webhook():
     try:
@@ -329,11 +330,17 @@ def sms_webhook():
 
         # التحقق من المرسل
         if sender.lower() != "syriatel":
+            logger.info(f"📩 تم تجاهل رسالة من {sender}: {message}")
             return jsonify({"status": "ignored"}), 200
 
+        # طباعة الرسالة في سجلات Render
+        logger.info(f"📩 تم استقبال رسالة من {sender}: {message}")
+
+        # إضافة الرسالة إلى قائمة SMS
         add_incoming_sms(message, sender)
         return jsonify({"status": "received"}), 200
     except Exception as e:
+        logger.error(f"❌ خطأ في /sms: {e}")
         return jsonify({"error": str(e)}), 500
 
 # ================= Telegram Webhook Endpoint =================
