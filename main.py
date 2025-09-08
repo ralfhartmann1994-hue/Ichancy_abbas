@@ -7,6 +7,8 @@ from collections import deque
 from flask import Flask, request, jsonify
 import telebot
 from telebot.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
+import threading
+import requests
 
 # ================= إعداد logging =================
 logging.basicConfig(level=logging.INFO)
@@ -18,6 +20,7 @@ if not TOKEN:
     raise RuntimeError("ضع TELEGRAM_TOKEN في Render")
 
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
+ADMIN_PROF = os.environ.get("ADMIN_PROF", "@MAA2857")
 PAYMENT_NUMBER = os.environ.get("PAYMENT_NUMBER", "0933000000")
 PAYMENT_CODE = os.environ.get("PAYMENT_CODE", "7788297")
 APP_URL = os.environ.get("APP_URL")  # مثال: https://ichancy-abbas.onrender.com
@@ -29,7 +32,7 @@ app = Flask(__name__)
 DATA_FILE = "users_data.json"
 users = {}
 incoming_sms = deque(maxlen=200)
-SMS_CACHE_SECONDS = 5 * 60
+SMS_CACHE_SECONDS = 5 * 60  # 5 دقائق
 
 (
     S_IDLE,
@@ -167,13 +170,17 @@ def on_start(msg):
     chat_id = msg.chat.id
     ensure_user(uid)
     u = users[str(uid)]
-    
+
+    bot.send_message(chat_id,
+        "مرحبا بكم في بوت ali كاشيرا ايشانسي ❤️\nلسنا الوحيدين لكننا الأفضل 💚😎",
+        reply_markup=kb_main())
+
     if u.get("full_name") and u.get("age"):
         u["state"] = S_MAIN_MENU
         save_data()
         bot.send_message(chat_id, "مرحبا مجددًا!", reply_markup=kb_main())
     else:
-        bot.send_message(chat_id, "هل أنت مسجل حساب لدينا في الكاشيرا؟", reply_markup=kb_yes_no())
+        bot.send_message(chat_id, f"هل أنت مسجل حساب لدينا في الكاشيرا؟", reply_markup=kb_yes_no())
         u["state"] = S_IDLE
         save_data()
 
@@ -201,7 +208,7 @@ def on_text(msg):
     # سؤال نعم/لا عند البداية
     if text in ["نعم", "لا"] and u.get("state") == S_IDLE:
         if text == "لا":
-            bot.send_message(chat_id, "الرجاء التواصل مع الدعم لإنشاء حساب لك:\n@MAA2857", reply_markup=ReplyKeyboardRemove())
+            bot.send_message(chat_id, f"الرجاء التواصل مع الدعم لإنشاء حساب لك:\n{ADMIN_PROF}", reply_markup=kb_main())
             u["state"] = S_IDLE
             save_data()
             return
@@ -250,7 +257,7 @@ def on_text(msg):
         elif text == "📄 ملفي الشخصي":
             bot.send_message(chat_id, f"👤 الاسم: {u['full_name']}\n🎂 العمر: {u['age']}\n✅ مرات التعبئة: {u['successful_topups']}", reply_markup=kb_main())
         elif text == "🆘 مساعدة":
-            bot.send_message(chat_id, "تواصل معنا إذا كنت تواجه أي مشكلة:\n@MAA2857", reply_markup=kb_main())
+            bot.send_message(chat_id, f"تواصل معنا إذا كنت تواجه أي مشكلة:\n{ADMIN_PROF}", reply_markup=kb_main())
         else:
             bot.send_message(chat_id, "اختر من الأزرار:", reply_markup=kb_main())
         return
@@ -273,7 +280,9 @@ def on_text(msg):
             u["pending"]["amount"] = amount
             u["state"] = S_WAIT_CONFIRM_SENT
             save_data()
-            bot.send_message(chat_id, f"حوّل المبلغ إلى الرقم: {PAYMENT_NUMBER}\nاستخدم الكود: {PAYMENT_CODE}\nبعد التحويل اضغط ✅ تم", reply_markup=kb_done_back())
+            bot.send_message(chat_id,
+                f"قم بتحويل المبلغ إلى الرقم التالي: {PAYMENT_NUMBER}\nالكود: {PAYMENT_CODE}\nبعد إتمام التحويل، اضغط على ✅ تم",
+                reply_markup=kb_done_back())
         else:
             bot.send_message(chat_id, "❌ المبلغ غير صحيح.", reply_markup=kb_back())
         return
@@ -307,29 +316,26 @@ def on_text(msg):
             bot.send_message(chat_id, "✅ تمت العملية بنجاح.\nسيتم تعبئة حسابك خلال ربع ساعة.", reply_markup=kb_main())
             send_admin_notification(uid, msg.from_user.username, u, amount)
         else:
-            bot.send_message(chat_id, "❌ الرمز غير صحيح أو لا يوجد SMS مطابق خلال آخر 5 دقائق.", reply_markup=kb_back())
+            bot.send_message(chat_id, "❌ الرقم خاطئ، يرجى التأكد من رقم عملية التحويل والمحاولة مجددًا.", reply_markup=kb_back())
         return
 
 # ================= SMS Gateway =================
 @app.route("/sms", methods=["POST"])
 def sms_webhook():
     try:
-        raw_data = request.data.decode("utf-8", errors="ignore")
-        print("📩 RAW JSON:", raw_data, flush=True)
-
         data = request.get_json(force=True) or {}
-        print("📩 JSON Parsed:", data, flush=True)
-
         message = data.get("message", "")
         sender = data.get("sender", "")
-        print(f"📩 Extracted -> sender: {sender}, message: {message}", flush=True)
+
+        # التحقق من المرسل
+        if sender.lower() != "syriatel":
+            return jsonify({"status": "ignored"}), 200
 
         add_incoming_sms(message, sender)
         return jsonify({"status": "received"}), 200
     except Exception as e:
-        print("❌ Error in /sms:", e, flush=True)
         return jsonify({"error": str(e)}), 500
-        
+
 # ================= Telegram Webhook Endpoint =================
 @app.route("/webhook", methods=["POST"])
 def telegram_webhook():
@@ -344,6 +350,18 @@ def telegram_webhook():
 @app.route("/", methods=["GET"])
 def home():
     return "Server is running ✅", 200
+
+# ================= Render Keep-Alive كل 4 دقائق =================
+def keep_alive():
+    while True:
+        try:
+            if APP_URL:
+                requests.get(APP_URL)
+        except Exception:
+            pass
+        time.sleep(240)  # كل 4 دقائق
+
+threading.Thread(target=keep_alive, daemon=True).start()
 
 if __name__ == "__main__":
     load_data()
