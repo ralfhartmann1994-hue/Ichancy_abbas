@@ -315,21 +315,19 @@ def on_text(msg):
 def sms_webhook():
     try:
         raw_data = request.data.decode("utf-8", errors="ignore")
-        logger.info("📩 الرسالة الخام RAW JSON: %s", raw_data)
+        logger.info("📩 RAW JSON: %s", raw_data, flush=True)
 
-        data = request.get_json(silent=True) or {}
-        logger.info("📩 الرسالة بعد التحويل JSON: %s", data)
+        data = request.get_json(force=True)  # force=True لضمان قراءة JSON حتى لو لم يكن Content-Type مضبوط
+        logger.info("📩 JSON Parsed: %s", data, flush=True)
 
         message = data.get("message", "")
         sender = data.get("sender", "")
-        logger.info("📩 المستخلص -> المرسل: %s, النص: %s", sender, message)
+        logger.info("📩 Extracted -> sender: %s, message: %s", sender, message, flush=True)
 
-        # ✅ إضافة الرسالة للـ cache
         add_incoming_sms(message, sender)
-
         return jsonify({"status": "received"}), 200
     except Exception as e:
-        logger.error("❌ خطأ في /sms: %s", e)
+        logger.error("❌ Error in /sms: %s", e, flush=True)
         return jsonify({"error": str(e)}), 500
         
 # ================= Telegram Webhook Endpoint =================
