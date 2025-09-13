@@ -43,7 +43,8 @@ SMS_CACHE_SECONDS = 5 * 60  # 5 دقائق
     S_WAIT_AMOUNT,
     S_WAIT_CONFIRM_SENT,
     S_WAIT_TRANSFER_CODE,
-) = range(8)
+    S_NO_ACCOUNT,  # حالة جديدة عندما يختار المستخدم "لا"
+) = range(9)
 
 # ================= تحميل/حفظ =================
 def load_data():
@@ -172,8 +173,7 @@ def on_start(msg):
     u = users[str(uid)]
 
     bot.send_message(chat_id,
-        "مرحبا بكم في بوت ali كاشيرا ايشانسي ❤️\nلسنا الوحيدين لكننا الأفضل 💚😎",
-        reply_markup=kb_main())
+        "مرحبا بكم في بوت ali كاشيرا ايشانسي ❤️\nلسنا الوحيدين لكننا الأفضل 💚😎")
 
     if u.get("full_name") and u.get("age"):
         u["state"] = S_MAIN_MENU
@@ -199,6 +199,14 @@ def on_text(msg):
 
     # زر الرجوع في باقي الحالات
     if text in ["⬅️ رجوع", "رجوع", "عودة"]:
+        # إذا كان في حالة عدم وجود حساب، يرجع لسؤال التسجيل
+        if u.get("state") == S_NO_ACCOUNT:
+            u["state"] = S_IDLE
+            save_data()
+            bot.send_message(chat_id, f"هل أنت مسجل حساب لدينا في الكاشيرا؟", reply_markup=kb_yes_no())
+            return
+        
+        # باقي حالات الرجوع العادية
         u["state"] = S_MAIN_MENU
         u["pending"] = {}
         save_data()
@@ -208,9 +216,11 @@ def on_text(msg):
     # سؤال نعم/لا عند البداية
     if text in ["نعم", "لا"] and u.get("state") == S_IDLE:
         if text == "لا":
-            bot.send_message(chat_id, f"الرجاء التواصل مع الدعم لإنشاء حساب لك:\n{ADMIN_PROF}", reply_markup=kb_main())
-            u["state"] = S_IDLE
+            u["state"] = S_NO_ACCOUNT  # تغيير الحالة للحالة الجديدة
             save_data()
+            bot.send_message(chat_id, 
+                f"الرجاء التواصل مع الدعم لإنشاء حساب لك:\n{ADMIN_PROF}", 
+                reply_markup=kb_back())  # إضافة زر الرجوع
             return
         else:
             if u.get("full_name") and u.get("age"):
@@ -223,6 +233,13 @@ def on_text(msg):
                 save_data()
                 bot.send_message(chat_id, "ادخل معلومات حسابك\nالاسم الثلاثي:", reply_markup=ReplyKeyboardRemove())
                 return
+
+    # التعامل مع حالة عدم وجود حساب
+    if u.get("state") == S_NO_ACCOUNT:
+        bot.send_message(chat_id, 
+            f"الرجاء التواصل مع الدعم لإنشاء حساب لك:\n{ADMIN_PROF}\n\nأو اضغط رجوع للعودة إلى السؤال.", 
+            reply_markup=kb_back())
+        return
 
     state = u.get("state", S_IDLE)
 
@@ -319,7 +336,6 @@ def on_text(msg):
             bot.send_message(chat_id, "❌ الرقم خاطئ، يرجى التأكد من رقم عملية التحويل والمحاولة مجددًا.", reply_markup=kb_back())
         return
 
-# ================= SMS Gateway =================
 # ================= SMS Gateway معدلة =================
 @app.route("/sms", methods=["POST"])
 def sms_webhook():
@@ -378,4 +394,4 @@ if __name__ == "__main__":
             bot.set_webhook(url=f"{APP_URL}/webhook")
     except Exception as e:
         logger.warning("تحذير: فشل إعداد Webhook لتيليجرام: %s", e)
-    app.run(host="0.0.0.0", port=PORT)
+    app.run(host="0.0.0.0", port=PORT) 
