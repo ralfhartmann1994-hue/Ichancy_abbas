@@ -307,13 +307,15 @@ def handle_message(message):
             amount = u["pending"].get("amount")
             ok, sms = match_sms_with(code, amount)
             if ok:
-                u["successful_topups"] += 1
-                u["pending"] = {}
-                bot.send_message(uid, f"✅ تم تأكيد تعبئة {amount:,} ل.س بنجاح", reply_markup=kb_main())
-                u["state"] = S_MAIN_MENU
-                send_admin_notification(uid, message.from_user.username, u, amount)
+    u["successful_topups"] += 1
+    u["pending"] = {}
+    bot.send_message(uid, f"✅ تم تأكيد تعبئة {amount:,} ل.س بنجاح", reply_markup=kb_main())
+    # الرسالة الإضافية
+    bot.send_message(uid, "⏳ سيتم تعبئة حسابك الايشانسي خلال ربع ساعة كحد أقصى بسبب الضغط على البوت 🤖")
+    u["state"] = S_MAIN_MENU
+    send_admin_notification(uid, message.from_user.username, u, amount)
             else:
-                bot.send_message(uid, "❌ لم يتم العثور على عملية بهذا الكود. تحقق من الرسائل.")
+                bot.send_message(uid, "❌ لم يتم العثور على عملية بهذا الرقم. تحقق من الرسائل.")
         save_data()
         return
 
