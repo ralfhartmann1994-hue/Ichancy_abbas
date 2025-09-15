@@ -206,6 +206,15 @@ def cmd_start(message):
     uid = message.from_user.id
     ensure_user(uid)
     u = users[str(uid)]
+
+    # التحقق إذا عنده ملف شخصي سابق
+    if u.get("full_name") and u.get("age"):
+        bot.send_message(uid, "👋 مرحبًا مجددًا يا " + u["full_name"], reply_markup=kb_main())
+        u["state"] = S_MAIN_MENU
+        save_data()
+        return
+
+    # إذا جديد أو ناقص بياناته -> يبدأ من البداية
     bot.send_message(uid, WELCOME_FIRST)
     send_delayed_message(uid, "هل أنت مسجل لدينا في الكاشيرا؟", reply_markup=kb_yes_no())
     u["state"] = S_IDLE
