@@ -287,7 +287,7 @@ def handle_message(message):
 
     if state == S_WAIT_CONFIRM_SENT:
         if text == "✅ تم":
-            bot.send_message(uid, "الرجاء إدخال رقم العملية (الكود):", reply_markup=kb_back())
+            bot.send_message(uid, "الرجاء إدخال رقم العملية (رقم عملية التعبئة):", reply_markup=kb_back())
             u["state"] = S_WAIT_TRANSFER_CODE
         save_data()
         return
